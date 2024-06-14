@@ -17,6 +17,7 @@ source: sic4 is duckdb.table('./SICcodes.csv') extend {
     dimension: SECOffice is column1
     dimension: Description is column2
     dimension: SIC is column0--:::number
+    dimension: Description_nc is replace(Description,',','.')
     
     primary_key: SIC
 }
@@ -32,6 +33,8 @@ source: sic3 is duckdb.table('./industry-groups.csv') extend {
     --dimension: Description is column3
     primary_key: IndustryGroup
 }
+
+
 source: sic2 is duckdb.table('./major-groups.csv') extend {
     
     --dimension: Division is column0
@@ -40,6 +43,34 @@ source: sic2 is duckdb.table('./major-groups.csv') extend {
     primary_key: MajorGroup
 }
 
+source: sic_change is duckdb.table('./industry2.malloy 2.csv') extend {
+    --primary_key: old_sic
+    join_one: sic4 with old_sic
+}
+
+run: sic_change -> {
+    select: *, sic4.Description
+    limit: 10
+    where: change_in_sic = "True"
+}
+
+run: sic_change -> {
+    group_by: old__sic_description is sic4.Description
+    aggregate: number_of_co is count()
+    --select: *, sic4.Description
+    --limit: 10
+    where: change_in_sic = "True"
+    nest: to_sic is {
+        group_by: new_sic_desciption is Description_nc
+        aggregate: number_of_co is count()
+         nest: by_co is {
+        group_by: name_no_comma, fy is fy::string
+        --order_by: fy
+        --aggregate: number_of_co is count()
+    }
+    }
+   
+}
 
 
 
@@ -74,7 +105,7 @@ run: sub -> {
 // industries by year
  -- # bar_chart
 run: sub -> {
-    group_by: sic4.SIC, sic4.Description
+    group_by: sic, sic4.Description
     aggregate: num_companies is count(adsh)
     where: form = "10-K" and period = @2021 --and sic = null
     -- nest: by_sic is {
@@ -165,13 +196,14 @@ run: sub -> {
 //replicate Josh Alan Lee's code
 //change in zip
 run: sub -> {
-    group_by: cik_str, name_no_comma, filed_str, fy, zipba, zipma, cityba, cityma, stprba, stprma, stprinc, afs, form, sic, sic4.Description
+    group_by: cik_str, name_no_comma, filed_str, fy, zipba, sic, sic4.Description_nc
     --limit: 1000
     where: form = "10-K" --| "10-Q"
     calculate: change_in_sic is pick 'True' when sic != lag(sic) {partition_by: name_no_comma; order_by: filed_str} --and cik_str = lag(cik) --when lag(mas1) != mas1 and lag(name) = name
     else 'No Change'
     calculate: old_sic is pick lag(sic) when sic != lag(sic) {partition_by: name_no_comma; order_by: filed_str} --and cik_str = lag(cik) --when lag(mas1) != mas1 and lag(name) = name
     else 1
+    --having: change_in_sic = "True"
     -- calculate: change_in_bas is pick 'True' when bas1_nc != lag(bas1_nc) {partition_by: cik_str; order_by: filed_str} --when lag(mas1) != mas1 and lag(name) = name
     -- else 'No Change'
     -- calculate: change_in_zipba is pick 'True' when zipba != lag(zipba) {partition_by: cik_str; order_by: filed_str} --when lag(mas1) != mas1 and lag(name) = name
@@ -182,19 +214,19 @@ run: sub -> {
     --else 'No Change'
    order_by: name_no_comma, filed_str
 --calculate: changed is lag(address) { partition_by: company_name; order_by: something }
-} -> {
-  --select: *
+} -- -> {
+--   --select: *
   
-  group_by: old_sic
-  aggregate: sic_1 is count()
-  where: change_in_sic = "True"
-}
+--   group_by: old_sic
+--   aggregate: sic_1 is count()
+--   where: change_in_sic = "True"
+-- }
 
 
 //replicate Josh Alan Lee's code
 //change in zip
 run: sub -> {
-    group_by: cik_str, name_no_comma, filed_str, fy, zipba, zipma, cityba, cityma, stprba, stprma, stprinc, afs, form, sic, period, sic4.Description
+    group_by: cik_str, name_no_comma, filed_str, fy, zipba, zipma, cityba, cityma, stprba, stprma, stprinc, afs, form, sic, period, sic4.Description_nc
     --limit: 1000
     where: form = "10-K" --| "10-Q"
     calculate: change_in_sic is pick 'True' when sic != lag(sic) {partition_by: name_no_comma; order_by: filed_str} --and cik_str = lag(cik) --when lag(mas1) != mas1 and lag(name) = name
@@ -202,7 +234,7 @@ run: sub -> {
    order_by: name_no_comma, filed_str
 --calculate: changed is lag(address) { partition_by: company_name; order_by: something }
 } -> {
-    select: name_no_comma, Description, change_in_sic, afs, sic, filed_str
+    select: name_no_comma, Description_nc, change_in_sic, afs, sic, filed_str
     limit: 100
     where: change_in_sic = "True"
    -- measure: name_is is count()
@@ -227,3 +259,4 @@ run: sub -> {
 -- } -> {
 --     group_by: by_stuff.name_no_comma --, sic4.Description
 }
+
